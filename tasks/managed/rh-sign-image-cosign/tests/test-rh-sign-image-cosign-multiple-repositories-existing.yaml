@@ -2,9 +2,11 @@
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
-  name: test-rh-sign-image-cosign-single-component
+  name: test-rh-sign-image-cosign-multiple-repositories-existing
 spec:
-  description: Test signing a single image by cosign
+  description: |
+    Test simulates signing multiple repositories in cosign when there are 
+    already existing signatures.
   params:
     - name: ociStorage
       description: The OCI repository where the Trusted Artifacts are stored.
@@ -59,13 +61,19 @@ spec:
                 "components": [
                   {
                     "name": "comp0",
-                    "containerImage": "quay.io/redhat-user-workloads/test-product/test-image2@sha256:2222",
+                    "containerImage": "quay.io/redhat-user-workloads/test-product/test-image0@sha256:0000",
                     "repositories": [
                       {
-                        "url": "quay.io/redhat-pending/test-product----test-image2",
-                        "rh-registry-repo": "registry.stage.redhat.io/test-product/test-image2",
-                        "registry-access-repo": "registry.access.stage.redhat.com/test-product/test-image2",
+                        "url": "quay.io/redhat-pending/test-product----test-image0",
+                        "rh-registry-repo": "registry.stage.redhat.io/test-product/test-image0",
+                        "registry-access-repo": "registry.access.stage.redhat.com/test-product/test-image0",
                         "tags": ["t1", "t2"]
+                      },
+                      {
+                        "url": "quay.io/redhat-pending/test-product----test-image0-alt",
+                        "rh-registry-repo": "registry.stage.redhat.io/test-product/test-image0-alt",
+                        "registry-access-repo": "registry.access.stage.redhat.com/test-product/test-image0-alt",
+                        "tags": ["latest"]
                       }
                     ]
                   }
@@ -73,18 +81,52 @@ spec:
               }
               EOF
               # create empty cosign verify mock files
-              for D in sha256:0000 sha256:1111 sha256:2222 ; do
-                REF="quay.io/redhat-pending/test-product----test-image2@${D}"
-                touch "$(params.dataDir)/$(echo $REF | tr '/' '-')"
+              # Main digest and individual manifest digests from OCI manifest list
+              for D in sha256:0000 sha256:0000-1 sha256:0000-2 sha256:0000-3; do
+                REF1="quay.io/redhat-pending/test-product----test-image0@${D}"
+                REF2="quay.io/redhat-pending/test-product----test-image0-alt@${D}"
+                touch "$(params.dataDir)/$(echo $REF1 | tr '/' '-')"
+                touch "$(params.dataDir)/$(echo $REF2 | tr '/' '-')"
               done
-
-              # first 8 cosign calls should end with success
-              for _ in $(seq 1 4); do
+              
+              cat > "$(params.dataDir)/$(echo "$REF1" | tr '/' '-')" << EOF
+              [
+              {
+                "critical": {
+                  "identity": {
+                    "docker-reference": "registry.stage.redhat.io/test-product/test-image0:t1"
+                  },
+                  "image": {
+                    "docker-manifest-digest": "sha256:0000-3"
+                  },
+                  "type": "cosign container image signature"
+                }
+              },
+              {
+                "critical": {
+                  "identity": {
+                    "docker-reference": "registry.access.stage.redhat.com/test-product/test-image0:t1"
+                  },
+                  "image": {
+                    "docker-manifest-digest": "sha256:0000"
+                  },
+                  "type": "cosign container image signature"
+                }
+              }
+              ]
+              EOF
+              # Expected cosign calls:
+              # - 2 repos * (2+1) tags = 6 sign calls for main digest
+              # - 2 repos * 3 manifest digests * (2+1) tags = 18 sign calls for individual manifests
+              # - 12 verify calls (1 per repo)
+              # Total: 24 calls
+              for _ in $(seq 1 24); do
                   echo "1" >> "$(params.dataDir)/mock_cosign_success_calls"
               done
 
               cat > "$(params.dataDir)/$(context.pipelineRun.uid)/signRegistryAccess.txt" << EOF
-              test-product/test-image2
+              test-product/test-image0
+              test-product/test-image0-alt
               EOF
           - name: create-trusted-artifact
             ref:
@@ -163,28 +205,45 @@ spec:
               #!/usr/bin/env bash
               set -eux
               echo "check results"
-              _TEST_PUB_REPO1="registry.stage.redhat.io/test-product/test-image2"
-              _TEST_PUB_REPO2="registry.access.stage.redhat.com/test-product/test-image2"
-              _TEST_REPO="quay.io/redhat-pending/test-product----test-image2"
+              _TEST_PUB_REPO1="registry.stage.redhat.io/test-product/test-image0"
+              _TEST_PUB_REPO2="registry.access.stage.redhat.com/test-product/test-image0"
+              _TEST_PUB_REPO3="registry.stage.redhat.io/test-product/test-image0-alt"
+              _TEST_PUB_REPO4="registry.access.stage.redhat.com/test-product/test-image0-alt"
+              _TEST_REPO1="quay.io/redhat-pending/test-product----test-image0"
+              _TEST_REPO2="quay.io/redhat-pending/test-product----test-image0-alt"
 
               CALLS=$(cat "$(params.dataDir)/mock_skopeo_calls")
-              EXPECTED="inspect --raw docker://quay.io/redhat-user-workloads/test-product/test-image2@sha256:2222"
+              EXPECTED="inspect --raw docker://quay.io/redhat-user-workloads/test-product/test-image0@sha256:0000"
               test "$CALLS" = "$EXPECTED"
 
               # call records need to be sorted as concurrentLimit is set to 2
               CALLS=$(sort "$(params.dataDir)/mock_cosign_sign_calls")
-              COSIGN_COMMON="-t 3m0s sign --new-bundle-format=false --tlog-upload=false \
-              --key aws://arn:mykey --sign-container-identity"
-              IDENTITY1="${_TEST_PUB_REPO1}:t1"
+              COSIGN_COMMON="-t 3m0s sign --new-bundle-format=false \
+              --tlog-upload=false --key aws://arn:mykey \
+              --sign-container-identity"
+              IDENTITY4="${_TEST_PUB_REPO4}:latest"
+              IDENTITY3="${_TEST_PUB_REPO3}:latest"
               IDENTITY2="${_TEST_PUB_REPO2}:t1"
-              IDENTITY12="${_TEST_PUB_REPO1}:t2"
+              IDENTITY1="${_TEST_PUB_REPO1}:t1"
               IDENTITY22="${_TEST_PUB_REPO2}:t2"
+              IDENTITY12="${_TEST_PUB_REPO1}:t2"
+
               EXPECTED=$(cat <<EOF
-              $COSIGN_COMMON ${IDENTITY2},${IDENTITY1} ${_TEST_REPO}@sha256:2222
-              $COSIGN_COMMON ${IDENTITY22},${IDENTITY12} ${_TEST_REPO}@sha256:2222
+              $COSIGN_COMMON ${IDENTITY4},${IDENTITY3} ${_TEST_REPO2}@sha256:0000
+              $COSIGN_COMMON ${IDENTITY4},${IDENTITY3} ${_TEST_REPO2}@sha256:0000-1
+              $COSIGN_COMMON ${IDENTITY4},${IDENTITY3} ${_TEST_REPO2}@sha256:0000-2
+              $COSIGN_COMMON ${IDENTITY4},${IDENTITY3} ${_TEST_REPO2}@sha256:0000-3
+              $COSIGN_COMMON ${IDENTITY2} ${_TEST_REPO1}@sha256:0000-3
+              $COSIGN_COMMON ${IDENTITY2},${IDENTITY1} ${_TEST_REPO1}@sha256:0000
+              $COSIGN_COMMON ${IDENTITY2},${IDENTITY1} ${_TEST_REPO1}@sha256:0000-1
+              $COSIGN_COMMON ${IDENTITY2},${IDENTITY1} ${_TEST_REPO1}@sha256:0000-2
+              $COSIGN_COMMON ${IDENTITY22},${IDENTITY12} ${_TEST_REPO1}@sha256:0000
+              $COSIGN_COMMON ${IDENTITY22},${IDENTITY12} ${_TEST_REPO1}@sha256:0000-1
+              $COSIGN_COMMON ${IDENTITY22},${IDENTITY12} ${_TEST_REPO1}@sha256:0000-2
+              $COSIGN_COMMON ${IDENTITY22},${IDENTITY12} ${_TEST_REPO1}@sha256:0000-3
               EOF
               )
-              echo "TESTING"
+              echo "TESTING SIGN CALLS"
               if [ "$CALLS" != "$EXPECTED" ]; then
                 echo "Diff:"
                 CALLS_FILE=$(mktemp XXXXX.calls)
@@ -199,8 +258,18 @@ spec:
               COSIGN_COMMON="verify --new-bundle-format=false --insecure-ignore-tlog=true \
               --key temp_key_file"
               EXPECTED=$(cat <<EOF
-              $COSIGN_COMMON ${_TEST_REPO}@sha256:2222
-              $COSIGN_COMMON ${_TEST_REPO}@sha256:2222
+              $COSIGN_COMMON ${_TEST_REPO1}@sha256:0000-1
+              $COSIGN_COMMON ${_TEST_REPO1}@sha256:0000-2
+              $COSIGN_COMMON ${_TEST_REPO1}@sha256:0000-3
+              $COSIGN_COMMON ${_TEST_REPO1}@sha256:0000
+              $COSIGN_COMMON ${_TEST_REPO2}@sha256:0000-1
+              $COSIGN_COMMON ${_TEST_REPO2}@sha256:0000-2
+              $COSIGN_COMMON ${_TEST_REPO2}@sha256:0000-3
+              $COSIGN_COMMON ${_TEST_REPO2}@sha256:0000
+              $COSIGN_COMMON ${_TEST_REPO1}@sha256:0000-1
+              $COSIGN_COMMON ${_TEST_REPO1}@sha256:0000-2
+              $COSIGN_COMMON ${_TEST_REPO1}@sha256:0000-3
+              $COSIGN_COMMON ${_TEST_REPO1}@sha256:0000
               EOF
               )
               echo "TESTING VERIFY CALLS"
