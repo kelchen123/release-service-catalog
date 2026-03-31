@@ -33,10 +33,6 @@ spec:
         Extra rule data to be merged into the policy specified in params.enterpriseContractPolicy. Use syntax
         "key1=value1,key2=value2..."
       default: "pipeline_intention=release"
-    - name: enterpriseContractTimeout
-      type: string
-      description: Timeout setting for `ec validate`
-      default: 40m0s
     - name: verify_ec_task_bundle
       type: string
       description: The location of the bundle containing the verify-enterprise-contract task
@@ -124,6 +120,18 @@ spec:
           value: $(params.taskGitRevision)
         - name: ociStorage
           value: $(tasks.config.results.ociStorage)
+    - name: collect-signing-params
+      taskRef:
+        resolver: "git"
+        params:
+          - name: url
+            value: $(params.taskGitUrl)
+          - name: revision
+            value: $(params.taskGitRevision)
+          - name: pathInRepo
+            value: tasks/managed/collect-signing-params/collect-signing-params.yaml
+      runAfter:
+        - collect-data
 
     # TODO: We probably don't need to support single component mode.
     - name: reduce-snapshot
@@ -157,7 +165,6 @@ spec:
           value: $(tasks.config.results.ociStorage)
       runAfter:
         - collect-data
-
     - name: verify-enterprise-contract
       taskRef:
         resolver: "git"
@@ -166,7 +173,7 @@ spec:
             value: https://github.com/enterprise-contract/ec-cli
           - name: revision
             # TODO: How to keep this up to date?
-            value: cdfd9188f9352d7269ae1fe8c273a9e67f60ab8a
+            value: b1ede77ff694522a917dea2b4bde14b2cc1839f2
           - name: pathInRepo
             value: "tasks/verify-conforma-konflux-ta/0.1/verify-conforma-konflux-ta.yaml"
       params:
@@ -182,10 +189,16 @@ spec:
           value: "true"
         - name: EXTRA_RULE_DATA
           value: $(params.enterpriseContractExtraRuleData)
-        - name: TIMEOUT
-          value: $(params.enterpriseContractTimeout)
         - name: SOURCE_DATA_ARTIFACT
           value: "$(tasks.reduce-snapshot.results.sourceDataArtifact)"
+        - name: CERTIFICATE_IDENTITY
+          value: "$(tasks.collect-signing-params.results.tektonChainsIdentity)"
+        - name: CERTIFICATE_OIDC_ISSUER
+          value: "$(tasks.collect-signing-params.results.defaultOIDCIssuer)"
+        - name: TUF_MIRROR
+          value: "$(tasks.collect-signing-params.results.tufUrl)"
+        - name: REKOR_HOST
+          value: "$(tasks.collect-signing-params.results.rekorUrl)"
       runAfter:
         - reduce-snapshot
 
