@@ -222,9 +222,9 @@ spec:
               test "$(
                 jq -c '.components[] | select(.name=="comp1") | .tags' \
                 < "$(params.dataDir)/$(context.pipelineRun.uid)/test_snapshot_spec.json"
-              )" == '["defaultTag","foo-123456","tag-labelvalue","tag-labelvalue-with-dash",'\
-              '"tag1-2024-07-29","tag2-2024-07-29","tag3-2024-07-29-testrev","v2.0.0-5","123456",'\
-              '"testrevision-abc","testrev-bar","testrevision","testrev"]'
+              )" == '["123456","defaultTag","foo-123456","tag-labelvalue","tag-labelvalue-with-dash",'\
+              '"tag1-2024-07-29","tag2-2024-07-29","tag3-2024-07-29-testrev","testrev","testrev-bar",'\
+              '"testrevision","testrevision-abc","v2.0.0-5"]'
 
               echo Test that SNAPSHOT contains component comp2
               test "$(
