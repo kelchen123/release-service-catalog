@@ -725,12 +725,12 @@ wait_for_release_to_start() {
 }
 
 # Override: GitHub repo creation
-create_github_repository() {
-    echo "Creating minimal GitHub repository for test metadata..."
-    "${SUITE_DIR}/../scripts/copy-branch-to-repo-git.sh" \
-        "${component_base_repo_name}" "${component_base_branch}" \
-        "${component_repo_name}" "${component_branch}"
-}
+# create_github_repository() {
+#     echo "Creating minimal GitHub repository for test metadata..."
+#     "${SUITE_DIR}/../scripts/copy-branch-to-repo-git.sh" \
+#         "${component_base_repo_name}" "${component_base_branch}" \
+#         "${component_repo_name}" "${component_branch}"
+# }
 
 # Override: Skip component source patching
 patch_component_source() {

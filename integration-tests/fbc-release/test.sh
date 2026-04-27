@@ -161,32 +161,19 @@ wait_for_component_initialization() {
 }
 
 # Always merge PRs for both components for simplicity and reliability
-merge_github_pr() {
-    echo "🔀 Merging PRs for both components (always dual for reliability)..."
-
-    # Always merge component 1
-    merge_single_component_pr "${component_pr_number}" "${component_repo_name}" "${NO_CVE}"
-    component_sha="${SHA}"
-
-    # Always merge component 2
-    merge_single_component_pr "${component2_pr_number}" "${component2_repo_name}" "${NO_CVE}"
-    component2_sha="${SHA}"
-
-    SHA="${component_sha}"  # Primary SHA for framework compatibility
-}
-
-# Always wait for PLRs for both components for simplicity and reliability
-wait_for_plr_to_appear() {
-    echo "⏳ Waiting for PipelineRuns for both components (always dual for reliability)..."
-    
-    # Always wait for component 1 PLR
-    comp1_plr_name=$(wait_for_single_plr_to_appear "${component_sha}")
-    component_push_plr_name="${comp1_plr_name}"  # Primary PLR for framework
-    
-    # Always wait for component 2 PLR
-    comp2_plr_name=$(wait_for_single_plr_to_appear "${component2_sha}")
-    component2_push_plr_name="${comp2_plr_name}"
-}
+# merge_github_pr() {
+#     echo "🔀 Merging PRs for both components (always dual for reliability)..."
+#
+#     # Always merge component 1
+#     merge_single_component_pr "${component_pr_number}" "${component_repo_name}" "${NO_CVE}"
+#     component_sha="${SHA}"
+#
+#     # Always merge component 2
+#     merge_single_component_pr "${component2_pr_number}" "${component2_repo_name}" "${NO_CVE}"
+#     component2_sha="${SHA}"
+#
+#     SHA="${component_sha}"  # Primary SHA for framework compatibility
+# }
 
 
 # Wait for PLR completion for both components in parallel to avoid race conditions
