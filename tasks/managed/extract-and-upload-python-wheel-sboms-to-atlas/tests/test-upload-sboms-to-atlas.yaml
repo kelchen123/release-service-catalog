@@ -2,16 +2,16 @@
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
-  name: test-upload-py-pulp
+  name: test-upload-sboms-to-atlas
 spec:
-  description: Test uploading Python packages to Pulp
+  description: Test extracting SBOMs from wheels and uploading to Atlas
   params:
     - name: ociStorage
-      description: The OCI repository where the Trusted Artifacts are stored.
+      description: The OCI repository where the Trusted Artifacts are stored
       type: string
     - name: ociArtifactExpiresAfter
       description: Expiration date for the trusted artifacts created in the
-        OCI repository. An empty string means the artifacts do not expire.
+        OCI repository
       type: string
       default: "1d"
     - name: orasOptions
@@ -19,12 +19,13 @@ spec:
       type: string
       default: "--insecure"
     - name: trustedArtifactsDebug
-      description: Flag to enable debug logging in trusted artifacts. Set to a non-empty string to enable.
+      description: Flag to enable debug logging in trusted artifacts
       type: string
       default: ""
     - name: dataDir
       description: The location where data will be stored
       type: string
+      default: /var/workdir/content
   tasks:
     - name: setup
       taskSpec:
@@ -52,14 +53,40 @@ spec:
               #!/usr/bin/env bash
               set -eux
 
+              mkdir -p "$(params.dataDir)/$(context.pipelineRun.uid)"
               mkdir -p "$(params.dataDir)/files"
 
-              # Create mock wheel, sdist, and attestation files
-              FILES="$(params.dataDir)/files"
-              echo "mock wheel content" > "${FILES}/my_package-1.0.0-py3-none-any.whl"
-              echo "mock sdist content" > "${FILES}/my_package-1.0.0.tar.gz"
-              echo '{"version": 1, "envelope": {}}' > "${FILES}/my_package-1.0.0-py3-none-any.whl.attestation"
-              echo '{"version": 1, "envelope": {}}' > "${FILES}/my_package-1.0.0.tar.gz.attestation"
+              # Create a mock snapshot spec
+              cat > "$(params.dataDir)/$(context.pipelineRun.uid)/snapshot_spec.json" << 'EOF'
+              {
+                "application": "calunga-v2-index-main",
+                "components": [
+                  {
+                    "name": "test-wheel-component",
+                    "containerImage": "quay.io/test/test-package@sha256:abc123"
+                  }
+                ]
+              }
+              EOF
+
+              # Create mock release data
+              cat > "$(params.dataDir)/$(context.pipelineRun.uid)/data.json" << 'EOF'
+              {
+                "releaseNotes": {
+                  "product_id": [1054],
+                  "product_name": "trusted libraries",
+                  "product_version": "1.0"
+                },
+                "atlas": {
+                  "server": "production"
+                }
+              }
+              EOF
+
+              # Create a mock wheel file (just needs to exist for the glob;
+              # unzip is mocked to return SBOM contents)
+              echo "mock-wheel-content" > "$(params.dataDir)/files/test_package-1.0.0-py3-none-any.whl"
+
           - name: create-trusted-artifact
             ref:
               name: create-trusted-artifact
@@ -70,26 +97,27 @@ spec:
                 value: $(params.dataDir)
               - name: sourceDataArtifact
                 value: $(results.sourceDataArtifact.path)
+
     - name: run-task
       taskRef:
-        name: upload-py-pulp
+        name: extract-and-upload-python-wheel-sboms-to-atlas
       params:
-        - name: SERVICE_ACCOUNT_SECRET_NAME
-          value: rhtl-pulp-credentials-secret
-        - name: PULP_BASE_URL
-          value: https://test.packages.redhat.com
-        - name: PULP_API_ROOT
-          value: /api/
-        - name: PULP_DOMAIN
-          value: test-domain
-        - name: PULP_REPOSITORY
-          value: test-repo
+        - name: atlasApiUrl
+          value: "https://mock-atlas.example.com"
+        - name: ssoTokenUrl
+          value: "https://mock-sso.example.com/token"
+        - name: atlasSecretName
+          value: "mock-atlas-secret"
         - name: sourceDataArtifact
           value: "$(tasks.setup.results.sourceDataArtifact)=$(params.dataDir)"
         - name: dataDir
           value: $(params.dataDir)
         - name: filesDir
           value: files
+        - name: ociStorage
+          value: $(params.ociStorage)
+        - name: ociArtifactExpiresAfter
+          value: $(params.ociArtifactExpiresAfter)
         - name: orasOptions
           value: $(params.orasOptions)
         - name: trustedArtifactsDebug
@@ -98,36 +126,5 @@ spec:
           value: "http://localhost"
         - name: taskGitRevision
           value: "main"
-        - name: ociStorage
-          value: $(params.ociStorage)
       runAfter:
         - setup
-    - name: check-result
-      params:
-        - name: dataDir
-          value: $(params.dataDir)
-      taskSpec:
-        params:
-          - name: dataDir
-            type: string
-        volumes:
-          - name: workdir
-            emptyDir: {}
-        stepTemplate:
-          volumeMounts:
-            - mountPath: /var/workdir
-              name: workdir
-        steps:
-          - name: check-result
-            image: quay.io/konflux-ci/release-service-utils@sha256:2f9e6863e82bbc9ddce5a290f3fd0e87657c475e3de8a832b2ef7f8d0671e7d3
-            script: |
-              #!/usr/bin/env bash
-              set -eux
-
-              # The upload task doesn't produce a trusted artifact output,
-              # so we just verify the task completed successfully.
-              # In a real scenario, the upload would have been done.
-              echo "Upload task completed successfully!"
-              echo "All checks passed!"
-      runAfter:
-        - run-task
