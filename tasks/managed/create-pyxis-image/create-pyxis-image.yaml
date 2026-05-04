@@ -159,7 +159,7 @@ spec:
         - name: sourceDataArtifact
           value: $(params.sourceDataArtifact)
     - name: create-pyxis-image
-      image: quay.io/konflux-ci/release-service-utils@sha256:24cac01e7e3541779e28eaf9e860224615d9068982e8d8d8be4ee38f85f58e38
+      image: quay.io/konflux-ci/release-service-utils@sha256:fc1ca8783082feb2ad69171f329d0bc77ffe06123452c8f0fd6c6fbf72d8025f
       computeResources:
         limits:
           memory: 3Gi

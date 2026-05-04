@@ -45,7 +45,7 @@ spec:
         steps:
           - name: get-container-image
             # yamllint disable-next-line rule:line-length
-            image: quay.io/konflux-ci/release-service-utils@sha256:e852a62497c4537059bb1f4c3ddf5c1a813b2b22bd9f4bb826cffb36af7d5f65
+            image: quay.io/konflux-ci/release-service-utils@sha256:7a4c3df3a33d25c6793bcc719eb776f7bd867b2248e73cab1fc8149e067466b5
             computeResources:
               requests:
                 cpu: 50m
